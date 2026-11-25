@@ -12,7 +12,7 @@ MAX_ERROR_CHARS = 2000
 
 
 def check_one_test(code: str, test_input: str, expected: str, time_limit: float):
-    """Run the code on one test. Return (verdict, seconds taken, stderr)."""
+    """Run the code on one test. Return (verdict, seconds taken, full run result)."""
     start = time.perf_counter()
     result = run_python(code, test_input, time_limit)
     elapsed = round(time.perf_counter() - start, 3)
@@ -26,7 +26,7 @@ def check_one_test(code: str, test_input: str, expected: str, time_limit: float)
     else:
         verdict = SubmissionStatus.ACCEPTED
 
-    return verdict, elapsed, result.stderr
+    return verdict, elapsed, result
 
 
 @celery_app.task(name="judge_submission")
@@ -59,7 +59,7 @@ def judge_submission_task(submission_id: int) -> None:
         slowest = 0.0
 
         for test in tests:
-            verdict, elapsed, stderr = check_one_test(
+            verdict, elapsed, run = check_one_test(
                 submission.source_code,
                 test.input,
                 test.expected_output,
@@ -78,7 +78,7 @@ def judge_submission_task(submission_id: int) -> None:
             if verdict != SubmissionStatus.ACCEPTED:
                 final_verdict = verdict
                 if verdict == SubmissionStatus.RUNTIME_ERROR:
-                    submission.error_message = stderr[-MAX_ERROR_CHARS:]
+                    submission.error_message = run.stderr[-MAX_ERROR_CHARS:]
                 break
 
         # 4. Save the final verdict

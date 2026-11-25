@@ -18,6 +18,11 @@ class SubmissionCreate(BaseModel):
     language: Literal["python"] = "python"
 
 
+class RunRequest(BaseModel):
+    problem_id: int
+    source_code: str = Field(min_length=1, max_length=50_000)
+
+
 # ---------- Coming out ----------
 
 class CaseResultOut(ORMModel):
@@ -57,3 +62,19 @@ class StatsOut(BaseModel):
     problems_attempted: int
     problems_solved: int
     solved_by_difficulty: dict[str, int]
+
+
+# ---------- Run (sample tests only) ----------
+
+class RunCaseOut(BaseModel):
+    input: str
+    expected_output: str
+    actual_output: str
+    verdict: SubmissionStatus
+    execution_time: float
+    error: str | None = None
+
+
+class RunResponse(BaseModel):
+    status: SubmissionStatus
+    cases: list[RunCaseOut]

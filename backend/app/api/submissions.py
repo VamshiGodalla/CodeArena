@@ -4,20 +4,30 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
-from app.models import Difficulty, Problem, Submission, SubmissionStatus, User
+from app.models import Difficulty, Problem, Submission, SubmissionStatus, TestCase, User
 from app.schemas.submission import (
+    RunCaseOut,
+    RunRequest,
+    RunResponse,
     StatsOut,
     SubmissionCreate,
     SubmissionDetail,
     SubmissionListItem,
     SubmissionOut,
 )
-from app.worker.tasks import judge_submission_task
+from app.worker.tasks import check_one_test, judge_submission_task
 
 router = APIRouter(tags=["submissions"])
 
 PENDING = (SubmissionStatus.QUEUED, SubmissionStatus.RUNNING)
 MAX_PENDING_PER_USER = 3
+
+
+def _get_published_problem(db: Session, problem_id: int) -> Problem:
+    problem = db.get(Problem, problem_id)
+    if problem is None or not problem.is_published:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Problem not found")
+    return problem
 
 
 @router.post("/submissions", response_model=SubmissionOut, status_code=status.HTTP_201_CREATED)
@@ -26,9 +36,7 @@ def create_submission(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    problem = db.get(Problem, data.problem_id)
-    if problem is None or not problem.is_published:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Problem not found")
+    problem = _get_published_problem(db, data.problem_id)
 
     # Simple abuse protection: one user can't flood the queue
     pending = db.scalar(
@@ -66,6 +74,45 @@ def create_submission(
         )
 
     return submission
+
+
+@router.post("/submissions/run", response_model=RunResponse)
+def run_samples(
+    data: RunRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Run code on the sample tests only. Nothing is saved."""
+    problem = _get_published_problem(db, data.problem_id)
+
+    samples = db.scalars(
+        select(TestCase)
+        .where(TestCase.problem_id == problem.id, TestCase.is_hidden.is_(False))
+        .order_by(TestCase.id)
+    ).all()
+    if not samples:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This problem has no sample tests to run.")
+
+    cases = []
+    overall = SubmissionStatus.ACCEPTED
+    for test in samples:
+        verdict, elapsed, run = check_one_test(
+            data.source_code, test.input, test.expected_output, problem.time_limit
+        )
+        cases.append(
+            RunCaseOut(
+                input=test.input,
+                expected_output=test.expected_output,
+                actual_output=run.stdout[:10_000],
+                verdict=verdict,
+                execution_time=elapsed,
+                error=run.stderr[-2000:] or None,
+            )
+        )
+        if verdict != SubmissionStatus.ACCEPTED and overall == SubmissionStatus.ACCEPTED:
+            overall = verdict
+
+    return RunResponse(status=overall, cases=cases)
 
 
 @router.get("/submissions/{submission_id}", response_model=SubmissionDetail)
