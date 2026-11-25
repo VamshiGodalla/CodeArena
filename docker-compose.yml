@@ -36,5 +36,14 @@ services:
 
   # The Celery worker service gets added on Day 5.
 
+  worker:
+    build: ./backend
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
+    env_file: .env
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - db
+      - redis
 volumes:
   pgdata:

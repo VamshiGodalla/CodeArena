@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api import admin, auth, problems, users
+from app.api import admin, auth, problems, submissions, users
 from app.core.config import settings
 from app.db.session import get_db
 
@@ -28,3 +28,4 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(problems.router)
 app.include_router(admin.router)
+app.include_router(submissions.router)
